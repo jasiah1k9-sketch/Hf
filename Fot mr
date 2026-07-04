@@ -1,0 +1,1019 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local player = LocalPlayer -- alias used by anti-weave code
+
+-- Create UI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 300, 0, 450) -- increased height for headless UI
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -225)
+MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MainFrame.BorderSizePixel = 0
+MainFrame.Visible = false
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner", MainFrame)
+UICorner.CornerRadius = UDim.new(0, 10)
+
+local Title = Instance.new("TextLabel")
+Title.Text = "kashi’s Empire"
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.BackgroundTransparency = 1
+Title.TextColor3 = Color3.fromRGB(255, 0, 0)
+Title.Font = Enum.Font.Arcade
+Title.TextSize = 18
+Title.Parent = MainFrame
+
+local Notification = Instance.new("TextLabel", MainFrame)
+Notification.Text = "kashi’s Empire"
+Notification.Size = UDim2.new(1, 0, 0, 20)
+Notification.Position = UDim2.new(0, 0, 1, -20)
+Notification.BackgroundTransparency = 1
+Notification.TextColor3 = Color3.fromRGB(100, 100, 100)
+Notification.Font = Enum.Font.Arcade
+Notification.TextSize = 14
+
+-- ===== Snowfall Effect =====
+
+local function createSnowflake()
+    local snowflake = Instance.new("TextLabel", MainFrame)
+    snowflake.Text = "🩸"
+    snowflake.Size = UDim2.new(0, 15, 0, 15)
+    snowflake.BackgroundTransparency = 2
+    snowflake.TextColor3 = Color3.fromRGB(170, 0, 0)
+    snowflake.TextScaled = true
+    snowflake.TextTransparency = 0
+    snowflake.Font = Enum.Font.Arcade
+    snowflake.ZIndex = 1
+    
+    local randomX = math.random(0, 280)
+    snowflake.Position = UDim2.new(0, randomX, 0, -15)
+    
+    task.spawn(function()
+        while snowflake and snowflake.Parent do
+            for _ = 1, 300 do
+                if not (snowflake and snowflake.Parent) then break end
+                local currentPos = snowflake.Position
+                snowflake.Position = UDim2.new(
+                    currentPos.X.Scale,
+                    currentPos.X.Offset,
+                    currentPos.Y.Scale,
+                    currentPos.Y.Offset + 1
+                )
+                task.wait(0.02)
+            end
+            if snowflake and snowflake.Parent then
+                snowflake:Destroy()
+            end
+        end
+    end)
+end
+
+-- Spawn snowflakes continuously
+task.spawn(function()
+    while true do
+        createSnowflake()
+        task.wait(0.8)
+    end
+end)
+
+-- Transparency Slider
+local TransparencyLabel = Instance.new("TextLabel", MainFrame)
+TransparencyLabel.Text = "Transparency: 0.4"
+TransparencyLabel.Position = UDim2.new(0, 10, 0, 50)
+TransparencyLabel.Size = UDim2.new(0, 150, 0, 20)
+TransparencyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TransparencyLabel.BackgroundTransparency = 1
+
+local TransparencySlider = Instance.new("TextBox", MainFrame)
+TransparencySlider.Position = UDim2.new(0, 170, 0, 50)
+TransparencySlider.Size = UDim2.new(0, 50, 0, 20)
+TransparencySlider.Text = "0.4"
+TransparencySlider.TextColor3 = Color3.fromRGB(255, 255, 255)
+TransparencySlider.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+TransparencySlider.BorderSizePixel = 0
+
+-- Size Slider
+local SizeLabel = Instance.new("TextLabel", MainFrame)
+SizeLabel.Text = "Size: 2"
+SizeLabel.Position = UDim2.new(0, 10, 0, 75)
+SizeLabel.Size = UDim2.new(0, 150, 0, 20)
+SizeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+SizeLabel.BackgroundTransparency = 1
+
+local SizeSlider = Instance.new("TextBox", MainFrame)
+SizeSlider.Position = UDim2.new(0, 170, 0, 75)
+SizeSlider.Size = UDim2.new(0, 50, 0, 20)
+SizeSlider.Text = "2"
+SizeSlider.TextColor3 = Color3.fromRGB(255, 255, 255)
+SizeSlider.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+SizeSlider.BorderSizePixel = 0
+
+-- ===== Punch Speed UI and logic =====
+
+-- Constants and state
+local PUNCH_MIN, PUNCH_MAX, PUNCH_DEFAULT = 1.7, 5, 1.7
+local currentPunchSpeed = PUNCH_DEFAULT
+
+-- Punch animation IDs
+local punchIDs = {
+    ["rbxassetid://18312333191"] = true,
+    ["rbxassetid://18312335714"] = true,
+    ["rbxassetid://18312338197"] = true,
+    ["rbxassetid://18312340119"] = true,
+    ["rbxassetid://18312344029"] = true,
+    ["rbxassetid://18312346524"] = true,
+    ["rbxassetid://18312348771"] = true,
+    ["rbxassetid://18312351760"] = true,
+}
+
+-- Small safe wrapper for this section (keeps it local to avoid conflicts)
+local function safePunch(fn) pcall(fn) end
+local function isPunch(track)
+    return track and track.Animation and punchIDs[tostring(track.Animation.AnimationId):lower()]
+end
+
+-- Separate connection cache for punch system to avoid colliding with other conn caches
+local punchConnCache = {}
+local function punchDisconnectKey(key)
+    local c = punchConnCache[key]
+    if c and c.Disconnect then
+        pcall(function() c:Disconnect() end)
+    end
+    punchConnCache[key] = nil
+end
+
+-- findLocalLive from your snippet (uses `player` variable already defined earlier)
+local function findLocalLive()
+    local live = workspace:FindFirstChild("Live")
+    if not live then return nil end
+    local myModel = live:FindFirstChild(player.Name)
+    if not myModel or not myModel.Parent then return nil end
+    local hum = myModel:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+    local anim = hum:FindFirstChildOfClass("Animator")
+    return myModel, hum, anim
+end
+
+-- applyPunchSpeedToLocalLive (adapted to use local punchConnCache and safePunch)
+local function applyPunchSpeedToLocalLive(mult)
+    currentPunchSpeed = mult or currentPunchSpeed
+
+    local myModel, hum, anim = findLocalLive()
+    if not myModel then
+        -- Watch for Live folder
+        if not punchConnCache["LiveWatcher"] then
+            punchConnCache["LiveWatcher"] = workspace.ChildAdded:Connect(function(ch)
+                if ch.Name == "Live" then
+                    task.defer(function() applyPunchSpeedToLocalLive(currentPunchSpeed) end)
+                end
+            end)
+        end
+
+        -- Watch for model spawn
+        local live = workspace:FindFirstChild("Live")
+        if live and not punchConnCache["ModelWatcher"] then
+            punchConnCache["ModelWatcher"] = live.ChildAdded:Connect(function(ch)
+                if ch.Name == player.Name then
+                    task.defer(function() applyPunchSpeedToLocalLive(currentPunchSpeed) end)
+                end
+            end)
+        end
+        return
+    end
+
+    punchDisconnectKey("LiveWatcher")
+    punchDisconnectKey("ModelWatcher")
+
+    -- Animator listeners
+    if anim then
+        for _, t in ipairs(anim:GetPlayingAnimationTracks()) do
+            if isPunch(t) then
+                safePunch(function() t:AdjustSpeed(currentPunchSpeed) end)
+            end
+        end
+
+        punchDisconnectKey(anim)
+        punchConnCache[anim] = anim.ChildAdded:Connect(function(ch)
+            if ch:IsA("AnimationTrack") and isPunch(ch) then
+                safePunch(function() ch:AdjustSpeed(currentPunchSpeed) end)
+            end
+        end)
+    end
+
+    -- Humanoid listeners
+    if hum then
+        punchDisconnectKey(hum)
+        punchConnCache[hum] = hum.AnimationPlayed:Connect(function(t)
+            if isPunch(t) then
+                safePunch(function() t:AdjustSpeed(currentPunchSpeed) end)
+            end
+        end)
+    end
+
+    -- Respawn watcher
+    punchDisconnectKey("ModelRemoved")
+    punchConnCache["ModelRemoved"] = myModel.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            punchDisconnectKey(anim)
+            punchDisconnectKey(hum)
+            task.defer(function() applyPunchSpeedToLocalLive(currentPunchSpeed) end)
+        end
+    end)
+end
+
+-- Create UI: Punch Speed label and textbox (placed near existing sliders)
+local PunchLabel = Instance.new("TextLabel", MainFrame)
+PunchLabel.Text = "Punch Speed: " .. tostring(PUNCH_DEFAULT)
+PunchLabel.Position = UDim2.new(0, 10, 0, 100)
+PunchLabel.Size = UDim2.new(0, 150, 0, 20)
+PunchLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+PunchLabel.BackgroundTransparency = 1
+PunchLabel.Font = Enum.Font.Gotham
+PunchLabel.TextSize = 14
+
+local PunchSlider = Instance.new("TextBox", MainFrame)
+PunchSlider.Position = UDim2.new(0, 170, 0, 100)
+PunchSlider.Size = UDim2.new(0, 50, 0, 20)
+PunchSlider.Text = tostring(PUNCH_DEFAULT)
+PunchSlider.TextColor3 = Color3.fromRGB(255, 255, 255)
+PunchSlider.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+PunchSlider.BorderSizePixel = 0
+PunchSlider.Font = Enum.Font.Gotham
+PunchSlider.TextSize = 14
+
+-- Helper to parse and clamp punch speed
+local function parseAndClampPunch(text)
+    local n = tonumber(text)
+    if not n then return nil end
+    if n < PUNCH_MIN then n = PUNCH_MIN end
+    if n > PUNCH_MAX then n = PUNCH_MAX end
+    return n
+end
+
+-- Live update when textbox text changes
+PunchSlider:GetPropertyChangedSignal("Text"):Connect(function()
+    local n = parseAndClampPunch(PunchSlider.Text)
+    if n then
+        PunchLabel.Text = "Punch Speed: " .. tostring(n)
+        currentPunchSpeed = n
+        pcall(function() applyPunchSpeedToLocalLive(currentPunchSpeed) end)
+    else
+        PunchLabel.Text = "Punch Speed: " .. tostring(PUNCH_DEFAULT)
+    end
+end)
+
+-- Apply on focus lost (finalize value)
+PunchSlider.FocusLost:Connect(function()
+    local n = parseAndClampPunch(PunchSlider.Text)
+    if n then
+        PunchSlider.Text = tostring(n)
+        PunchLabel.Text = "Punch Speed: " .. tostring(n)
+        pcall(function() applyPunchSpeedToLocalLive(n) end)
+    else
+        -- reset to default if invalid
+        PunchSlider.Text = tostring(PUNCH_DEFAULT)
+        PunchLabel.Text = "Punch Speed: " .. tostring(PUNCH_DEFAULT)
+        pcall(function() applyPunchSpeedToLocalLive(PUNCH_DEFAULT) end)
+    end
+end)
+
+-- Initialize punch system immediately
+task.defer(function()
+    applyPunchSpeedToLocalLive(currentPunchSpeed)
+end)
+
+-- ===== Weave Glide UI and logic =====
+
+local weaveEnabled = false
+local weaveDistance = 2.8 -- default distance
+
+local WeaveLabel = Instance.new("TextLabel", MainFrame)
+WeaveLabel.Text = "Weave Distance: 2.2"
+WeaveLabel.Position = UDim2.new(0, 10, 0, 130)
+WeaveLabel.Size = UDim2.new(0, 150, 0, 20)
+WeaveLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+WeaveLabel.BackgroundTransparency = 1
+WeaveLabel.Font = Enum.Font.Gotham
+WeaveLabel.TextSize = 14
+
+local WeaveSlider = Instance.new("TextBox", MainFrame)
+WeaveSlider.Position = UDim2.new(0, 170, 0, 130)
+WeaveSlider.Size = UDim2.new(0, 50, 0, 20)
+WeaveSlider.Text = "2.2"
+WeaveSlider.TextColor3 = Color3.fromRGB(255, 255, 255)
+WeaveSlider.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+WeaveSlider.BorderSizePixel = 0
+WeaveSlider.Font = Enum.Font.Gotham
+WeaveSlider.TextSize = 14
+
+local WeaveToggle = Instance.new("TextButton", MainFrame)
+WeaveToggle.Size = UDim2.new(0, 280, 0, 35)
+WeaveToggle.Position = UDim2.new(0, 10, 0, 160)
+WeaveToggle.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+WeaveToggle.Text = "Weave Glide: OFF"
+WeaveToggle.TextColor3 = Color3.fromRGB(255, 80, 80)
+WeaveToggle.Font = Enum.Font.GothamBold
+WeaveToggle.TextSize = 16
+WeaveToggle.BorderSizePixel = 0
+
+local weaveCorner = Instance.new("UICorner", WeaveToggle)
+weaveCorner.CornerRadius = UDim.new(0, 8)
+
+local weaveStroke = Instance.new("UIStroke", WeaveToggle)
+weaveStroke.Color = Color3.fromRGB(80, 80, 80)
+weaveStroke.Thickness = 1
+
+local function updateWeaveVisuals()
+    if weaveEnabled then
+        WeaveToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
+        WeaveToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+        WeaveToggle.Text = "Weave Glide: ON"
+    else
+        WeaveToggle.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        WeaveToggle.TextColor3 = Color3.fromRGB(255, 80, 80)
+        WeaveToggle.Text = "Weave Glide: OFF"
+    end
+end
+
+WeaveToggle.MouseButton1Click:Connect(function()
+    weaveEnabled = not weaveEnabled
+    updateWeaveVisuals()
+end)
+
+WeaveSlider:GetPropertyChangedSignal("Text"):Connect(function()
+    local n = tonumber(WeaveSlider.Text)
+    if n and n > 0 then
+        weaveDistance = n
+        WeaveLabel.Text = "Weave Distance: " .. tostring(n)
+    end
+end)
+
+WeaveSlider.FocusLost:Connect(function()
+    local n = tonumber(WeaveSlider.Text)
+    if n and n > 0 then
+        weaveDistance = n
+        WeaveLabel.Text = "Weave Distance: " .. tostring(n)
+        WeaveSlider.Text = tostring(n)
+    else
+        WeaveSlider.Text = tostring(weaveDistance)
+        WeaveLabel.Text = "Weave Distance: " .. tostring(weaveDistance)
+    end
+end)
+
+local function boostWeaveDistance(char)
+    local hrp = char:WaitForChild("HumanoidRootPart", 10)
+    if not hrp then return end
+
+    hrp.ChildAdded:Connect(function(child)
+        if weaveEnabled and child:IsA("BodyPosition") and child:GetAttribute("m") == 1 then
+            local currentPos = child.Position
+            local hrpPos = hrp.Position
+            local direction = currentPos - hrpPos
+            local originalDistance = direction.Magnitude
+
+            if originalDistance > 0 then
+                local unitDir = direction.Unit
+                local newPosition = hrpPos + (unitDir * weaveDistance)
+                child.Position = newPosition
+            end
+        end
+    end)
+end
+
+if player.Character then
+    boostWeaveDistance(player.Character)
+end
+player.CharacterAdded:Connect(boostWeaveDistance)
+
+-- Apply Button (repurposed to toggle anti)
+local ApplyButton = Instance.new("TextButton", MainFrame)
+ApplyButton.Text = "Anti: OFF"
+ApplyButton.Size = UDim2.new(0, 280, 0, 30)
+ApplyButton.Position = UDim2.new(0, 10, 0, 205) -- moved down for weave UI
+ApplyButton.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+ApplyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ApplyButton.Font = Enum.Font.GothamBold
+ApplyButton.TextSize = 16
+ApplyButton.BorderSizePixel = 0
+
+local ApplyCorner = Instance.new("UICorner", ApplyButton)
+ApplyCorner.CornerRadius = UDim.new(0, 8)
+
+-- ===== Headless Toggle =====
+
+local headlessEnabled = false
+local headlessExecuted = false
+
+local HeadlessToggle = Instance.new("TextButton", MainFrame)
+HeadlessToggle.Size = UDim2.new(0, 280, 0, 35)
+HeadlessToggle.Position = UDim2.new(0, 10, 0, 245)
+HeadlessToggle.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+HeadlessToggle.Text = "Headless: OFF"
+HeadlessToggle.TextColor3 = Color3.fromRGB(255, 80, 80)
+HeadlessToggle.Font = Enum.Font.GothamBold
+HeadlessToggle.TextSize = 16
+HeadlessToggle.BorderSizePixel = 0
+
+local headlessCorner = Instance.new("UICorner", HeadlessToggle)
+headlessCorner.CornerRadius = UDim.new(0, 8)
+
+local headlessStroke = Instance.new("UIStroke", HeadlessToggle)
+headlessStroke.Color = Color3.fromRGB(80, 80, 80)
+headlessStroke.Thickness = 1
+
+local function updateHeadlessVisuals()
+    if headlessEnabled then
+        HeadlessToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
+        HeadlessToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+        HeadlessToggle.Text = "Headless: ON"
+    else
+        HeadlessToggle.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        HeadlessToggle.TextColor3 = Color3.fromRGB(255, 80, 80)
+        HeadlessToggle.Text = "Headless: OFF"
+    end
+end
+
+HeadlessToggle.MouseButton1Click:Connect(function()
+    headlessEnabled = not headlessEnabled
+    updateHeadlessVisuals()
+    
+    if headlessEnabled and not headlessExecuted then
+        -- Load headless script
+        task.spawn(function()
+            pcall(function()
+                loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-Headless-84946"))()
+                headlessExecuted = true
+                Notification.Text = "Headless: Enabled"
+            end)
+        end)
+    else
+        Notification.Text = headlessEnabled and "Headless: ON" or "Headless: OFF"
+    end
+    
+    Notification.Visible = true
+    delay(2, function() Notification.Visible = false end)
+end)
+
+-- Toggle UI with Left Alt
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.M and not gameProcessed then
+        MainFrame.Visible = not MainFrame.Visible
+        if MainFrame.Visible then
+            Notification.Visible = true
+            wait(2)
+            Notification.Visible = false
+        end
+    end
+end)
+
+-- Whitelist and original HRP storage
+local whitelist = {}
+local originalHRPProps = {}
+
+-- Per-player connection storage for cleanup and robust handling
+local playerConnections = {} -- player -> { humanoidConn, diedConn, knockedConn, liveChildAddedConn, charConn }
+
+-- Forward declaration
+local UpdatePlayers
+
+-- Helpers
+local function setAllPartsNonCollidable(character)
+    if not character then return end
+    for _, part in pairs(character:GetChildren()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+            part.CanTouch = true
+            part.CanQuery = true
+        end
+    end
+end
+
+local function getLiveEntryForPlayer(player)
+    if not player then return nil end
+    local live = workspace:FindFirstChild("Live")
+    if not live then return nil end
+    return live:FindFirstChild(player.Name)
+end
+
+local function getKnockedBoolFromEntry(entry)
+    if not entry then return nil end
+    local knocked = entry:FindFirstChild("Knocked")
+    if knocked and knocked:IsA("BoolValue") then
+        return knocked
+    end
+    return nil
+end
+
+-- Add/remove whitelist with immediate update
+local function addToWhitelist(player)
+    if player and player:IsA("Player") then
+        whitelist[player] = true
+        pcall(UpdatePlayers)
+    end
+end
+
+local function removeFromWhitelist(player)
+    if player and player:IsA("Player") then
+        whitelist[player] = nil
+        -- restore HRP if we have stored props
+        local props = originalHRPProps[player]
+        if props and player.Character then
+            local Root = player.Character:FindFirstChild("HumanoidRootPart")
+            if Root and Root:IsA("BasePart") then
+                Root.Size = props.Size
+                Root.Transparency = props.Transparency
+                Root.CanCollide = props.CanCollide
+                Root.CanTouch = props.CanTouch
+                Root.CanQuery = props.CanQuery
+            end
+        end
+        pcall(UpdatePlayers)
+    end
+end
+
+-- UpdatePlayers applies HRP changes to whitelisted players and restores for others
+UpdatePlayers = function()
+    local transparencyValue = tonumber(TransparencySlider.Text) or 0.4
+    local sizeValue = tonumber(SizeSlider.Text) or 2
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local Root = player.Character:FindFirstChild("HumanoidRootPart")
+            if whitelist[player] then
+                if Root and Root:IsA("BasePart") then
+                    if not originalHRPProps[player] then
+                        originalHRPProps[player] = {
+                            Size = Root.Size,
+                            Transparency = Root.Transparency,
+                            CanCollide = Root.CanCollide,
+                            CanTouch = Root.CanTouch,
+                            CanQuery = Root.CanQuery,
+                        }
+                    end
+                    local Size = Vector3.new(sizeValue, sizeValue, sizeValue)
+                    Root.Size = Size
+                    Root.Transparency = transparencyValue
+                    Root.CanCollide = false
+                    Root.CanTouch = true
+                    Root.CanQuery = true
+                end
+                setAllPartsNonCollidable(player.Character)
+            else
+                local props = originalHRPProps[player]
+                if props and Root and Root:IsA("BasePart") then
+                    Root.Size = props.Size
+                    Root.Transparency = props.Transparency
+                    Root.CanCollide = props.CanCollide
+                    Root.CanTouch = props.CanTouch
+                    Root.CanQuery = props.CanQuery
+                end
+            end
+        end
+    end
+end
+
+-- Evaluate whether player should be whitelisted based on health and knocked
+local function evaluateWhitelistState(player)
+    if not player then return end
+    local char = player.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    local healthOk = humanoid and humanoid.Health > 0
+    local liveEntry = getLiveEntryForPlayer(player)
+    local knocked = getKnockedBoolFromEntry(liveEntry)
+    local knockedFalse = not knocked or knocked.Value == false
+
+    if healthOk and knockedFalse then
+        addToWhitelist(player)
+    else
+        removeFromWhitelist(player)
+    end
+end
+
+-- Attach Knocked listener for a given live entry and player
+local function attachKnockedListener(player, entry)
+    if not player or not entry then return end
+    local conTable = playerConnections[player]
+    if not conTable then return end
+
+    -- Clean previous knockedConn if exists
+    if conTable.knockedConn then
+        conTable.knockedConn:Disconnect()
+        conTable.knockedConn = nil
+    end
+
+    local knocked = getKnockedBoolFromEntry(entry)
+    if knocked then
+        conTable.knockedConn = knocked.Changed:Connect(function()
+            -- re-evaluate on any change
+            evaluateWhitelistState(player)
+        end)
+        -- ensure immediate state respected
+        evaluateWhitelistState(player)
+    else
+        -- If Knocked not present yet, attach ChildAdded to detect it
+        if conTable.liveChildAddedConn then
+            conTable.liveChildAddedConn:Disconnect()
+            conTable.liveChildAddedConn = nil
+        end
+        conTable.liveChildAddedConn = entry.ChildAdded:Connect(function(child)
+            if child.Name == "Knocked" and child:IsA("BoolValue") then
+                -- attach knocked listener
+                if conTable.knockedConn then
+                    conTable.knockedConn:Disconnect()
+                    conTable.knockedConn = nil
+                end
+                conTable.knockedConn = child.Changed:Connect(function()
+                    evaluateWhitelistState(player)
+                end)
+                evaluateWhitelistState(player)
+            end
+        end)
+    end
+end
+
+-- Monitor a single player: humanoid, character, and live entry
+local function monitorPlayer(player)
+    if not player then return end
+
+    -- initialize connection table
+    playerConnections[player] = playerConnections[player] or {}
+    local conTable = playerConnections[player]
+
+    -- ensure player starts whitelisted; evaluate will correct if not
+    addToWhitelist(player)
+
+    -- CharacterAdded handler
+    if conTable.charConn then
+        conTable.charConn:Disconnect()
+        conTable.charConn = nil
+    end
+    conTable.charConn = player.CharacterAdded:Connect(function(character)
+        -- cleanup humanoid connections
+        if conTable.humanoidConn then
+            conTable.humanoidConn:Disconnect()
+            conTable.humanoidConn = nil
+        end
+        if conTable.diedConn then
+            conTable.diedConn:Disconnect()
+            conTable.diedConn = nil
+        end
+
+        -- wait for humanoid
+        local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
+        if humanoid then
+            conTable.humanoidConn = humanoid.HealthChanged:Connect(function()
+                evaluateWhitelistState(player)
+            end)
+            conTable.diedConn = humanoid.Died:Connect(function()
+                evaluateWhitelistState(player)
+            end)
+        end
+
+        -- attach to live entry if exists or wait for it via global watcher
+        local entry = getLiveEntryForPlayer(player)
+        if entry then
+            -- attach knocked listener or childadded
+            attachKnockedListener(player, entry)
+        else
+            -- if no entry yet, ensure we will attach when entry appears via global watcher
+            evaluateWhitelistState(player)
+        end
+
+        -- immediate application
+        pcall(UpdatePlayers)
+    end)
+
+    -- If character already exists, call handler once
+    if player.Character then
+        -- small delay to let character initialize
+        spawn(function()
+            wait(0.1)
+            if player.Character then
+                -- simulate CharacterAdded behavior
+                local character = player.Character
+                local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
+                if humanoid then
+                    if conTable.humanoidConn then conTable.humanoidConn:Disconnect() end
+                    conTable.humanoidConn = humanoid.HealthChanged:Connect(function()
+                        evaluateWhitelistState(player)
+                    end)
+                    if conTable.diedConn then conTable.diedConn:Disconnect() end
+                    conTable.diedConn = humanoid.Died:Connect(function()
+                        evaluateWhitelistState(player)
+                    end)
+                end
+                local entry = getLiveEntryForPlayer(player)
+                if entry then
+                    attachKnockedListener(player, entry)
+                else
+                    evaluateWhitelistState(player)
+                end
+                pcall(UpdatePlayers)
+            end
+        end)
+    end
+end
+
+-- Global watcher for workspace.Live and its entries
+local liveRoot = workspace:FindFirstChild("Live")
+local liveRootConn
+
+local function attachToLiveRoot(root)
+    if not root then return end
+    -- attach to existing entries
+    for _, entry in pairs(root:GetChildren()) do
+        local player = Players:FindFirstChild(entry.Name)
+        if player then
+            -- ensure playerConnections exists
+            playerConnections[player] = playerConnections[player] or {}
+            -- attach knocked listener for this entry
+            attachKnockedListener(player, entry)
+        end
+    end
+
+    -- watch for new entries
+    if liveRootConn then
+        liveRootConn:Disconnect()
+        liveRootConn = nil
+    end
+    liveRootConn = root.ChildAdded:Connect(function(entry)
+        if entry and entry:IsA("Instance") then
+            local player = Players:FindFirstChild(entry.Name)
+            if player then
+                playerConnections[player] = playerConnections[player] or {}
+                attachKnockedListener(player, entry)
+            end
+        end
+    end)
+end
+
+-- If Live exists now, attach; otherwise watch for it
+if liveRoot then
+    attachToLiveRoot(liveRoot)
+else
+    -- watch workspace for Live creation
+    workspace.ChildAdded:Connect(function(child)
+        if child.Name == "Live" and child:IsA("Folder") then
+            liveRoot = child
+            attachToLiveRoot(liveRoot)
+        end
+    end)
+end
+
+-- Also watch for Live being removed and re-added
+workspace.ChildRemoved:Connect(function(child)
+    if child == liveRoot then
+        if liveRootConn then
+            liveRootConn:Disconnect()
+            liveRootConn = nil
+        end
+        liveRoot = nil
+    end
+end)
+
+-- Player added/removed handling
+Players.PlayerAdded:Connect(function(player)
+    monitorPlayer(player)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    -- cleanup
+    whitelist[player] = nil
+    originalHRPProps[player] = nil
+    local conTable = playerConnections[player]
+    if conTable then
+        if conTable.humanoidConn then conTable.humanoidConn:Disconnect() end
+        if conTable.diedConn then conTable.diedConn:Disconnect() end
+        if conTable.knockedConn then conTable.knockedConn:Disconnect() end
+        if conTable.liveChildAddedConn then conTable.liveChildAddedConn:Disconnect() end
+        if conTable.charConn then conTable.charConn:Disconnect() end
+    end
+    playerConnections[player] = nil
+end)
+
+-- Initialize existing players
+for _, player in pairs(Players:GetPlayers()) do
+    monitorPlayer(player)
+end
+
+-- Periodic fallback update
+spawn(function()
+    while true do
+        wait(5)
+        pcall(UpdatePlayers)
+    end
+end)
+
+-- Live update when slider text changes
+TransparencySlider:GetPropertyChangedSignal("Text"):Connect(function()
+    TransparencyLabel.Text = "Transparency: " .. tostring(TransparencySlider.Text)
+    pcall(UpdatePlayers)
+end)
+SizeSlider:GetPropertyChangedSignal("Text"):Connect(function()
+    SizeLabel.Text = "Size: " .. tostring(SizeSlider.Text)
+    pcall(UpdatePlayers)
+end)
+
+TransparencySlider.FocusLost:Connect(function()
+    TransparencyLabel.Text = "Transparency: " .. tostring(TransparencySlider.Text)
+    pcall(UpdatePlayers)
+end)
+SizeSlider.FocusLost:Connect(function()
+    SizeLabel.Text = "Size: " .. tostring(SizeSlider.Text)
+    pcall(UpdatePlayers)
+end)
+
+-- =========================
+-- Anti-weave stun protection
+-- =========================
+
+-- Simple safe wrapper (pcall wrapper)
+local function safe(fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        -- silent fail; optionally print(err) for debugging
+    end
+end
+
+-- Connection cache and helpers for anti-weave
+local connCache = {} -- key -> connection
+local function disconnectKey(key)
+    local c = connCache[key]
+    if c then
+        pcall(function() c:Disconnect() end)
+        connCache[key] = nil
+    end
+end
+
+-- Anti-weave state and tick
+local antiWeaveEnabled = false
+local antiTick = 0.15 -- fallback loop interval (seconds)
+
+-- connectWeaveListeners adapted from your snippet
+local function connectWeaveListeners()
+    disconnectKey("LiveWeave")
+    disconnectKey("ModelWeave")
+    disconnectKey("WeaveChild")
+
+    local live = workspace:FindFirstChild("Live")
+    if not live then
+        connCache["LiveWeave"] = workspace.ChildAdded:Connect(function(ch)
+            if ch.Name == "Live" then
+                task.defer(connectWeaveListeners)
+            end
+        end)
+        return
+    end
+
+    connCache["ModelWeave"] = live.ChildAdded:Connect(function(ch)
+        if ch.Name == player.Name then
+            task.defer(connectWeaveListeners)
+        end
+    end)
+
+    local pl = live:FindFirstChild(player.Name)
+    if not pl then return end
+
+    -- Delete instantly if already present (only when enabled)
+    local stun = pl:FindFirstChild("WeaveStun")
+    if antiWeaveEnabled and stun then safe(function() stun:Destroy() end) end
+
+    -- Real-time deletion
+    connCache["WeaveChild"] = pl.ChildAdded:Connect(function(ch)
+        if antiWeaveEnabled and ch.Name == "WeaveStun" then
+            safe(function() ch:Destroy() end)
+        end
+    end)
+
+    -- Reconnect after death
+    pl.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            task.defer(connectWeaveListeners)
+        end
+    end)
+end
+
+task.defer(connectWeaveListeners)
+
+-- Fallback loop
+task.spawn(function()
+    while true do
+        if antiWeaveEnabled then
+            local live = workspace:FindFirstChild("Live")
+            local pl = live and live:FindFirstChild(player.Name)
+            local stun = pl and pl:FindFirstChild("WeaveStun")
+            if stun then safe(function() stun:Destroy() end) end
+        end
+        task.wait(antiTick)
+    end
+end)
+
+-- Apply button now toggles anti on/off (instead of calling UpdatePlayers)
+ApplyButton.MouseButton1Click:Connect(function()
+    antiWeaveEnabled = not antiWeaveEnabled
+    if antiWeaveEnabled then
+        ApplyButton.Text = "Anti: ON"
+        -- Immediately attempt to remove any existing WeaveStun and ensure listeners are active
+        task.defer(function()
+            connectWeaveListeners()
+            -- immediate sweep
+            local live = workspace:FindFirstChild("Live")
+            local pl = live and live:FindFirstChild(player.Name)
+            local stun = pl and pl:FindFirstChild("WeaveStun")
+            if stun then safe(function() stun:Destroy() end) end
+        end)
+        Notification.Text = "Anti-weave: Enabled"
+    else
+        ApplyButton.Text = "Anti: OFF"
+        Notification.Text = "Anti-weave: Disabled"
+        -- When disabling, we keep listeners but they will no longer destroy stuns because checks use antiWeaveEnabled
+    end
+    Notification.Visible = true
+    delay(2, function() Notification.Visible = false end)
+end) MainFrame.Parent = ScreenGui
+
+
+-- ACCESS BUTTON (mobile opener)
+
+local OpenButton = Instance.new("TextButton")
+OpenButton.Size = UDim2.new(0,45,0,45)
+OpenButton.Position = UDim2.new(0,10,0,10)
+OpenButton.Text = "ARISE"
+OpenButton.BackgroundColor3 = Color3.fromRGB(150,0,0)
+OpenButton.TextColor3 = Color3.fromRGB(255,255,255)
+OpenButton.Font = Enum.Font.Arcade
+OpenButton.TextSize = 14
+OpenButton.Parent = ScreenGui
+OpenButton.Active = true
+
+local corner = Instance.new("UICorner", OpenButton)
+corner.CornerRadius = UDim.new(0,8)
+
+local stroke = Instance.new("UIStroke", OpenButton)
+stroke.Color = Color3.fromRGB(0,170,255)
+stroke.Thickness = 3
+
+local glow = Instance.new("UIGradient", OpenButton)
+glow.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0,0,0)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(150,0,0))
+}
+
+OpenButton.MouseButton1Click:Connect(function()
+    MainFrame.Visible = not MainFrame.Visible
+end) local UIS = game:GetService("UserInputService")
+
+local dragging = false
+local dragInput
+local dragStart
+local startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    OpenButton.Position = UDim2.new(
+        startPos.X.Scale,
+        startPos.X.Offset + delta.X,
+        startPos.Y.Scale,
+        startPos.Y.Offset + delta.Y
+    )
+end
+
+OpenButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        dragging = true
+        dragStart = input.Position
+        startPos = OpenButton.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+OpenButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
+
+
+local UICorner = Instance.new("UICorner", MainFrame)
